@@ -30,11 +30,11 @@ LLM_CONFIG = {
     "max_tokens": int(os.getenv("LLM_MAX_TOKENS", 4096)),
 }
 
-# 多仓库配置（支持同时索引多个代码仓库）
+# 多仓库配置（从环境变量读取路径，不在代码中硬编码本地路径，用户自定义的还是可以继续添加）
 REPOS_CONFIG = {
-    "flask_chat": os.getenv("REPO_FLASK_CHAT", "/Users/marin/PycharmProjects/flask_chat"),
-    # 可以继续添加更多仓库，格式："仓库别名": "路径"
-    # "frontend": "/Users/marin/PycharmProjects/frontend",
+    "flask_chat": os.getenv("REPO_FLASK_CHAT"),
+    # 可以继续添加更多仓库，格式："仓库别名": "环境变量名"
+    # "frontend": os.getenv("REPO_FRONTEND"),
 }
 
 # 默认查询的仓库（如果不指定--repo参数，就用这个）

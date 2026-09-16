@@ -1,4 +1,5 @@
 import os
+import re
 from llama_index.core import SimpleDirectoryReader, VectorStoreIndex, Settings, StorageContext
 from llama_index.embeddings.ollama import OllamaEmbedding  # 用专门的Ollama嵌入类，无需模型名校验
 from llama_index.llms.ollama import Ollama as OllamaLLM  # LLM也用Ollama类，更稳定
@@ -9,8 +10,55 @@ import tree_sitter_typescript
 import tree_sitter_go
 import tree_sitter_java
 from llama_index.core.node_parser import CodeSplitter
+from llama_index.core.schema import Document
 from db import init_pgvector, get_vector_store
 from config import EMBED_CONFIG, INDEX_CONFIG, LLM_CONFIG, REPOS_CONFIG
+
+
+def sanitize_sensitive_content(text: str) -> str:
+    """
+    清理文本中的敏感信息，防止密码、API Key、Token等被索引到向量数据库
+    
+    过滤规则：
+    1. API Key / Secret Key 格式
+    2. 密码字段赋值
+    3. Token / Bearer 令牌
+    4. 数据库连接字符串中的密码
+    5. 私钥块
+    """
+    patterns = [
+        # API Key / Secret (长随机字符串，包含连字符、下划线等常见字符)
+        (r'(?i)(api[_-]?key|secret[_-]?key|access[_-]?token|private[_-]?key)\s*[=:]\s*["\']?[A-Za-z0-9+/=\-_\.]{20,}["\']?', 
+         r'\1 = "[REDACTED]"'),
+        
+        # 密码字段
+        (r'(?i)(password|passwd|pwd)\s*[=:]\s*["\']?[^"\'\n]{6,}["\']?',
+         r'\1 = "[REDACTED]"'),
+        
+        # Bearer Token
+        (r'(Bearer\s+)[A-Za-z0-9\-_\.]+',
+         r'\1[REDACTED]'),
+        
+        # 数据库连接字符串
+        (r'(postgresql\+asyncpg://[^:]+:)[^@]+(@)',
+         r'\1[REDACTED]\2'),
+        
+        (r'(mongodb(\+srv)?://[^:]+:)[^@]+(@)',
+         r'\1[REDACTED]\3'),
+        
+        # 私钥块
+        (r'-----BEGIN[A-Z ]+PRIVATE KEY-----[\s\S]*?-----END[A-Z ]+PRIVATE KEY-----',
+         '[REDACTED PRIVATE KEY]'),
+        
+        # JWT Token
+        (r'eyJ[A-Za-z0-9-_]+\.eyJ[A-Za-z0-9-_]+\.[A-Za-z0-9-_.+/=]+',
+         '[REDACTED_JWT]'),
+    ]
+    
+    for pattern, replacement in patterns:
+        text = re.sub(pattern, replacement, text)
+    
+    return text
 
 
 def init_settings():
@@ -73,6 +121,27 @@ def index_code_repo(repo_name: str, reindex=False):
     
     documents = reader.load_data()
     print(f"📄 共加载 {len(documents)} 个文件")
+    
+    # 清理敏感信息（密码、API Key、Token等），防止隐私泄露到向量数据库
+    print("🔒 正在清理敏感信息...")
+    sanitized_count = 0
+    sanitized_documents = []
+    for doc in documents:
+        original_text = doc.text
+        cleaned_text = sanitize_sensitive_content(doc.text)
+        if cleaned_text != original_text:
+            sanitized_count += 1
+            # 创建新的 Document 对象，使用清理后的文本
+            new_doc = Document(text=cleaned_text, metadata=doc.metadata)
+            sanitized_documents.append(new_doc)
+        else:
+            sanitized_documents.append(doc)
+    documents = sanitized_documents
+    
+    if sanitized_count > 0:
+        print(f"⚠️  发现并清理了 {sanitized_count} 个文件中的敏感信息")
+    else:
+        print("✅ 未发现敏感信息")
     
     # 添加元数据：仓库名、相对路径
     for doc in documents:
