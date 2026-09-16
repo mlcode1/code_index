@@ -1,11 +1,104 @@
 from llama_index.core import Settings
+from llama_index.core.llms import LLM, ChatMessage, ChatResponse, CompletionResponse, LLMMetadata
+from llama_index.core.llms import CustomLLM as BaseCustomLLM
 from indexer import load_existing_index
 from config import LLM_CONFIG, INDEX_CONFIG, REPOS_CONFIG, DEFAULT_REPO
+from typing import Sequence, Any, Generator
+from openai import OpenAI
+
+
+class SimpleLLM(BaseCustomLLM):
+    """用原生 openai SDK 调用任意 OpenAI 兼容接口，不校验模型名"""
+    
+    model_name: str
+    temperature: float = 0.1
+    max_tokens: int = 4096
+    client: Any = None
+    
+    class Config:
+        arbitrary_types_allowed = True
+    
+    def __init__(self, model, api_base, api_key, temperature=0.1, max_tokens=4096, **kwargs):
+        super().__init__(model_name=model, temperature=temperature, max_tokens=max_tokens, **kwargs)
+        self.client = OpenAI(base_url=api_base, api_key=api_key)
+    
+    @property
+    def _llm_type(self) -> str:
+        return "simple_openai"
+    
+    @property
+    def metadata(self) -> LLMMetadata:
+        return LLMMetadata(model_name=self.model_name)
+    
+    def complete(self, prompt: str, formatted: bool = False, **kwargs: Any) -> CompletionResponse:
+        resp = self.client.chat.completions.create(
+            model=self.model_name,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=self.temperature,
+            max_tokens=self.max_tokens,
+        )
+        return CompletionResponse(text=resp.choices[0].message.content)
+    
+    def chat(self, messages: Sequence[ChatMessage], **kwargs: Any) -> ChatResponse:
+        api_msgs = [
+            {"role": msg.role.value if hasattr(msg.role, 'value') else str(msg.role),
+             "content": str(msg.content)}
+            for msg in messages
+        ]
+        resp = self.client.chat.completions.create(
+            model=self.model_name,
+            messages=api_msgs,
+            temperature=self.temperature,
+            max_tokens=self.max_tokens,
+        )
+        return ChatResponse(
+            message=ChatMessage(role="assistant", content=resp.choices[0].message.content)
+        )
+    
+    def stream_complete(
+        self, prompt: str, formatted: bool = False, **kwargs: Any
+    ) -> Generator[CompletionResponse, None, None]:
+        """流式输出（累积文本）"""
+        resp = self.client.chat.completions.create(
+            model=self.model_name,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=self.temperature,
+            max_tokens=self.max_tokens,
+            stream=True,
+        )
+        accumulated = ""
+        for chunk in resp:
+            if chunk.choices and chunk.choices[0].delta.content:
+                accumulated += chunk.choices[0].delta.content
+                yield CompletionResponse(text=accumulated)
+    
+    def stream_chat(
+        self, messages: Sequence[ChatMessage], **kwargs: Any
+    ) -> Generator[ChatResponse, None, None]:
+        """流式聊天（累积文本）"""
+        api_msgs = [
+            {"role": msg.role.value if hasattr(msg.role, 'value') else str(msg.role),
+             "content": str(msg.content)}
+            for msg in messages
+        ]
+        resp = self.client.chat.completions.create(
+            model=self.model_name,
+            messages=api_msgs,
+            temperature=self.temperature,
+            max_tokens=self.max_tokens,
+            stream=True,
+        )
+        accumulated = ""
+        for chunk in resp:
+            if chunk.choices and chunk.choices[0].delta.content:
+                accumulated += chunk.choices[0].delta.content
+                yield ChatResponse(
+                    message=ChatMessage(role="assistant", content=accumulated)
+                )
 
 
 def init_llm():
-    """初始化大模型（默认使用Ollama本地模型，如果需要其他OpenAI兼容模型可以改回OpenAI类）"""
-    # 判断是本地Ollama还是其他OpenAI兼容服务
+    """初始化大模型"""
     if "localhost:11434" in LLM_CONFIG["api_base"]:
         from llama_index.llms.ollama import Ollama as OllamaLLM
         Settings.llm = OllamaLLM(
@@ -15,15 +108,13 @@ def init_llm():
             request_timeout=300
         )
     else:
-        # 其他云端/OpenAI兼容接口用通用OpenAI类
-        from llama_index.llms.openai import OpenAI
-        Settings.llm = OpenAI(
+        # 用原生 openai SDK，不校验模型名
+        Settings.llm = SimpleLLM(
             model=LLM_CONFIG["model"],
             api_base=LLM_CONFIG["api_base"],
             api_key=LLM_CONFIG["api_key"],
             temperature=LLM_CONFIG["temperature"],
-            max_tokens=LLM_CONFIG["max_tokens"],
-            request_timeout=300
+            max_tokens=LLM_CONFIG["max_tokens"]
         )
 
 
