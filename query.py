@@ -58,7 +58,7 @@ class SimpleLLM(BaseCustomLLM):
     def stream_complete(
         self, prompt: str, formatted: bool = False, **kwargs: Any
     ) -> Generator[CompletionResponse, None, None]:
-        """流式输出（累积文本）"""
+        """流式输出"""
         resp = self.client.chat.completions.create(
             model=self.model_name,
             messages=[{"role": "user", "content": prompt}],
@@ -66,16 +66,20 @@ class SimpleLLM(BaseCustomLLM):
             max_tokens=self.max_tokens,
             stream=True,
         )
-        accumulated = ""
+        accumulated_text = ""
         for chunk in resp:
             if chunk.choices and chunk.choices[0].delta.content:
-                accumulated += chunk.choices[0].delta.content
-                yield CompletionResponse(text=accumulated)
+                delta = chunk.choices[0].delta.content
+                accumulated_text += delta
+                yield CompletionResponse(
+                    text=accumulated_text,
+                    delta=delta
+                )
     
     def stream_chat(
         self, messages: Sequence[ChatMessage], **kwargs: Any
     ) -> Generator[ChatResponse, None, None]:
-        """流式聊天（累积文本）"""
+        """流式聊天"""
         api_msgs = [
             {"role": msg.role.value if hasattr(msg.role, 'value') else str(msg.role),
              "content": str(msg.content)}
@@ -88,12 +92,14 @@ class SimpleLLM(BaseCustomLLM):
             max_tokens=self.max_tokens,
             stream=True,
         )
-        accumulated = ""
+        accumulated_text = ""
         for chunk in resp:
             if chunk.choices and chunk.choices[0].delta.content:
-                accumulated += chunk.choices[0].delta.content
+                delta = chunk.choices[0].delta.content
+                accumulated_text += delta
                 yield ChatResponse(
-                    message=ChatMessage(role="assistant", content=accumulated)
+                    message=ChatMessage(role="assistant", content=accumulated_text),
+                    delta=delta
                 )
 
 
