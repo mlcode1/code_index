@@ -40,12 +40,15 @@ def init_pgvector():
 
 def get_vector_store(repo_name: str):
     """获取PGVector向量存储实例，每个仓库一张独立的表"""
-    connection_string = f"postgresql://{PG_CONFIG['user']}:{PG_CONFIG['password']}@{PG_CONFIG['host']}:{PG_CONFIG['port']}/{PG_CONFIG['database']}"
     table_name = f"code_embeddings_{repo_name}"
     
+    # 显式提供同步和异步连接字符串
+    sync_connection_string = f"postgresql://{PG_CONFIG['user']}:{PG_CONFIG['password']}@{PG_CONFIG['host']}:{PG_CONFIG['port']}/{PG_CONFIG['database']}"
+    async_connection_string = f"postgresql+asyncpg://{PG_CONFIG['user']}:{PG_CONFIG['password']}@{PG_CONFIG['host']}:{PG_CONFIG['port']}/{PG_CONFIG['database']}"
+    
     vector_store = PGVectorStore.from_params(
-        connection_string=connection_string,
-        database=PG_CONFIG["database"],
+        connection_string=sync_connection_string,
+        async_connection_string=async_connection_string,
         table_name=table_name,
         embed_dim=EMBED_CONFIG["dimensions"],
         hybrid_search=True, # 支持混合搜索（关键词+语义）

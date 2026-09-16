@@ -10,7 +10,7 @@ PG_CONFIG = {
     "port": int(os.getenv("PG_PORT", 5432)),
     "user": os.getenv("PG_USER", "postgres"),
     "password": os.getenv("PG_PASSWORD", "postgres"),
-    "database": os.getenv("PG_DATABASE", "flask_chat"),
+    "database": os.getenv("PG_DATABASE", "postgres"),
 }
 
 # 嵌入模型配置（Ollama qwen3-embedding:8b）
@@ -34,7 +34,6 @@ LLM_CONFIG = {
 REPOS_CONFIG = {
     "flask_chat": os.getenv("REPO_FLASK_CHAT", "/Users/marin/PycharmProjects/flask_chat"),
     # 可以继续添加更多仓库，格式："仓库别名": "路径"
-    # "another_project": "/Users/marin/PycharmProjects/another_project",
     # "frontend": "/Users/marin/PycharmProjects/frontend",
 }
 
